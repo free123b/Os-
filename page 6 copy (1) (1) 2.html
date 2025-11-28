@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Background Data Fetcher with Notifications</title>
+<style>
+  /* CSS Variables for easier theme management */
+  :root {
+    --bg-dark: #222;
+    --bg-medium: #333;
+    --bg-light: #444;
+    --text-light: #eee;
+    --text-dark: #333; /* For text on light backgrounds */
+    --primary-blue: #007bff;
+    --primary-blue-hover: #0056b3;
+    --warning-orange: #ffc107;
+    --warning-orange-hover: #e0a800; /* Darker orange */
+    --error-red: #dc3545;
+    --error-red-hover: #c82333;
+    --success-green: #28a745;
+    --success-green-hover: #218838;
+    --neutral-gray: #6c757d;
+    --neutral-gray-hover: #5a6268;
+  }
+
+  body {
+    font-family: sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    background-color: var(--bg-dark);
+    color: var(--text-light);
+    overflow-x: hidden; /* Prevent horizontal scrollbar during slide-in animations */
+  }
+  .container {
+    padding: 20px;
+    border: 1px solid var(--bg-light);
+    border-radius: 8px;
+    background-color: var(--bg-medium);
+    text-align: center;
+    max-width: 600px;
+    width: 90%;
+    position: relative;
+    padding-bottom: 50px; /* Space for bottom-right controls */
+
+    /* Animation for container */
+    transform: translateY(-50px); /* Initial state: slightly above */
+    opacity: 0; /* Initial state: hidden */
+    animation: slideInFromTop 0.8s ease-out forwards;
+  }
+
+  /* Common button styles - for all <button> elements */
+  button {
+    padding: 10px 15px;
+    margin-top: 10px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    margin: 5px;
+    transition: background-color 0.2s ease, opacity 0.2s ease;
+    font-weight: bold; /* Added for consistency with other buttons */
+  }
+  button:hover:not(:disabled) {
+    /* Base hover, specific buttons override or append */
+  }
+  button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  /* Specific button styles */
+  button#requestPermissionBtn {
+    background-color: var(--primary-blue);
+    color: white;
+  }
+  button#requestPermissionBtn:hover:not(:disabled) {
+    background-color: var(--primary-blue-hover);
+  }
+
+  button#stopFetchingBtn {
+    background-color: var(--warning-orange);
+    color: var(--text-dark); /* Keep dark for contrast on orange */
+  }
+  button#stopFetchingBtn:hover:not(:disabled) {
+    background-color: var(--warning-orange-hover);
+  }
+  
+  button#revokePermissionBtn {
+    background-color: var(--error-red);
+    color: white;
+  }
+  button#revokePermissionBtn:hover:not(:disabled) {
+    background-color: var(--error-red-hover);
+  }
+
+  #status {
+    margin-top: 15px;
+    font-size: 0.9em;
+    color: var(--text-light);
+  }
+  .interval-selection {
+    margin-top: 20px;
+    margin-bottom: 15px;
+    text-align: left;
+    padding: 10px 20px;
+    border: 1px solid var(--bg-light);
+    border-radius: 5px;
+    background-color: var(--bg-light);
+    color: var(--text-light);
+  }
+  .interval-selection legend {
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: var(--text-light);
+  }
+  .interval-selection label {
+    display: block;
+    margin-bottom: 8px;
+    cursor: pointer;
+    color: var(--text-light);
+  }
+  .interval-selection input[type="radio"] {
+    margin-right: 8px;
+  }
+
+  /* Developer Info Trigger (fixed to viewport) */
+  #devInfoTrigger {
+    position: fixed;
+    bottom: 15px;
+    right: 15px;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.8em;
+    z-index: 1000;
+    background-color: rgba(51, 51, 51, 0.7);
+    border: 1px solid rgba(85, 85, 85, 0.5);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    transition: background-color 0.2s ease;
+
+    /* Animation for devInfoTrigger */
+    transform: translateX(50px); /* Initial state: off-screen right */
+    opacity: 0; /* Initial state: hidden */
+    animation: slideInFromRight 0.8s ease-out forwards 0.4s; /* Added delay */
+  }
+  #devInfoTrigger:hover {
+    background-color: rgba(234, 25, 25, 0.7);
+  }
+
+  /* Developer Info Pop-up styles (fixed to viewport) */
+  #devInfoPopup {
+    position: fixed;
+    bottom: 50px;
+    right: 15px;
+    background-color: rgba(var(--bg-medium-rgb), 0.7); /* Using rgba from hex directly */
+    border: 1px solid rgba(var(--bg-light-rgb), 0.5);
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    z-index: 1001;
+    display: none;
+    text-align: left;
+    width: 250px;
+    color: var(--text-light);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  #devInfoPopup p {
+    margin: 0 0 8px 0;
+    line-height: 1.4;
+    color: var(--text-light);
+  }
+  #devInfoPopup strong {
+    color: var(--text-light);
+  }
+  #devInfoPopup a {
+    color: var(--text-light);
+    text-decoration:dotted;
+  }
+  #devInfoPopup a:hover {
+    text-decoration: underline;
+  }
+
+
+  /* Connection Status (fixed to bottom-left viewport) */
+  .bottom-left-controls {
+    position: fixed;
+    bottom: 15px;
+    left: 15px;
+    z-index: 1000;
+
+    /* Animation for bottom-left-controls */
+    transform: translateX(-50px); /* Initial state: off-screen left */
+    opacity: 0; /* Initial state: hidden */
+    animation: slideInFromLeft 0.8s ease-out forwards 0.2s; /* Added delay */
+  }
+
+  #connectionStatus {
+    font-size: 0.9em;
+    font-weight: bold;
+    transition: color 0.3s ease;
+    color: var(--text-light); /* Default text color, overridden by status classes */
+  }
+  .status-online {
+    color: var(--success-green);
+  }
+  .status-offline {
+    color: var(--error-red);
+  }
+  .status-fetching {
+    color: var(--warning-orange);
+    animation: flash-fetching 1s infinite alternate; /* Flashing animation */
+  }
+  @keyframes flash-fetching {
+    0% { opacity: 1; }
+    100% { opacity: 0.7; }
+  }
+
+
+  /* Info Button (absolute to container) */
+  .bottom-right-container-controls {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    display: flex;
+    gap: 5px;
+    z-index: 10; /* Above container content */
+  }
+
+  #infoButton {
+    background-color: var(--neutral-gray);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 5px 9px;
+    font-size: 0.8em;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+    transition: background-color 0.2s ease;
+  }
+  #infoButton:hover {
+    background-color: var(--neutral-gray-hover);
+  }
+
+  /* Network Stats Pop-up styles (fixed to viewport) */
+  #networkStatsContainer {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: rgba(var(--bg-medium-rgb), 0.9);
+    border: 1px solid rgba(var(--bg-light-rgb), 0.7);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    z-index: 1001;
+    display: none;
+    text-align: left;
+    width: 300px;
+    color: var(--text-light);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  #networkStatsContainer h3 {
+    margin-top: 0;
+    color: var(--primary-blue);
+    text-align: center;
+  }
+  #networkStatsContainer p {
+    margin: 5px 0;
+    line-height: 1.5;
+  }
+  #networkStatsContainer strong {
+    color: var(--text-light);
+  }
+  #networkStatsContainer button#resetStatsButton { /* Specificity for this button */
+    display: block;
+    margin: 15px auto 0 auto;
+    background-color: var(--error-red);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 8px 15px;
+    font-size: 0.9em;
+    cursor: pointer;
+    width: auto;
+  }
+  #networkStatsContainer button#resetStatsButton:hover {
+    background-color: var(--error-red-hover);
+  }
+
+  /* Custom Confirmation Dialog Styles */
+  #dialogOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 1002;
+    display: none;
+    justify-content: center;
+    align-items: center;
+  }
+
+  #customConfirmDialog {
+    background-color: var(--bg-medium);
+    border: 1px solid var(--bg-light);
+    border-radius: 8px;
+    padding: 25px;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    max-width: 350px;
+    width: 90%;
+    color: var(--text-light);
+    transform: scale(0.9);
+    transition: transform 0.2s ease-out;
+  }
+
+  #customConfirmDialog.show {
+    transform: scale(1);
+  }
+
+  #customConfirmDialog h3 {
+    margin-top: 0;
+    color: var(--warning-orange);
+  }
+
+  #customConfirmDialog p {
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+
+  #customConfirmDialog .dialog-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 20px;
+  }
+
+  #customConfirmDialog .dialog-buttons button {
+    padding: 10px 20px;
+    border-radius: 5px;
+    border: none;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 1em;
+    margin: 0; /* Override default button margin */
+  }
+
+  #cancelResetButton {
+    background-color: var(--neutral-gray);
+    color: white;
+  }
+  #cancelResetButton:hover {
+    background-color: var(--neutral-gray-hover);
+  }
+
+  #confirmResetButton {
+    background-color: var(--error-red);
+    color: white;
+  }
+  #confirmResetButton:hover {
+    background-color: var(--error-red-hover);
+  }
+
+  /* Helper to get RGB components from hex for rgba() usage */
+  html {
+    --bg-medium-rgb: 51, 51, 51; /* #333 */
+    --bg-light-rgb: 68, 68, 68; /* #444 */
+  }
+
+  /* --- Button Loader Styles --- */
+  .button-loader {
+    display: inline-block; /* Aligns with buttons */
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top: 3px solid var(--primary-blue);
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    animation: spinner-animation 0.8s linear infinite;
+    vertical-align: middle; /* Align with button text */
+    margin: 0 5px; /* Match button margin */
+    padding: 0;
+    line-height: 1;
+    box-sizing: content-box;
+  }
+
+  /* Utility class to hide elements */
+  .hidden {
+    display: none !important;
+  }
+
+  @keyframes spinner-animation {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  /* --- New Entry Animations --- */
+  @keyframes slideInFromTop {
+    0% { transform: translateY(-50px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+
+  @keyframes slideInFromLeft {
+    0% { transform: translateX(-50px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+
+  @keyframes slideInFromRight {
+    0% { transform: translateX(50px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Keep UP !</h1>
+  <p>This Page will find Quotes and send it to you as browser notifications !</p>
+  
+  <!-- Loading spinner for the request permission button -->
+  <button id="requestPermissionBtn">Request Notification Permission</button>
+  <div id="requestPermissionBtnLoader" class="button-loader hidden"></div>
+
+  <button id="stopFetchingBtn" disabled>Stop Fetching Data</button>
+  <button id="revokePermissionBtn">Revoke Notification Permission</button>
+  
+  <p id="status">Status: Waiting for permission to initiate !.</p>
+
+  <div class="interval-selection">
+    <fieldset id="intervalRadiosGroup"> <!-- Added ID for event delegation -->
+      <legend>Select Fetch Interval:</legend>
+      <label>
+        <input type="radio" name="fetchInterval" value="5000" checked> 5 seconds (DEBUG Mode)
+      </label>
+      <label>
+        <input type="radio" name="fetchInterval" value="600000"> 10 minutes (at :00, :10, :20, :30, :40, :50)
+      </label>
+      <label>
+        <input type="radio" name="fetchInterval" value="900000"> 15 minutes (at :00, :15, :30, :45)
+      </label>
+      <label>
+        <input type="radio" name="fetchInterval" value="1800000"> 30 minutes (at :00, :30)
+      </label>
+      <label>
+        <input type="radio" name="fetchInterval" value="3600000"> 1 hour (at :00)
+      </label>
+    </fieldset>
+  </div>
+
+  <!-- Info Button moved INSIDE .container -->
+  <div class="bottom-right-container-controls">
+    <button id="infoButton">ⓘ</button>
+  </div>
+</div>
+
+<!-- Developer Info Placeholder (fixed to viewport) -->
+<div id="devInfoTrigger">Developed by Ometh</div>
+
+<!-- Developer Info Pop-up Menu (fixed to viewport) -->
+<div id="devInfoPopup">
+  <p><strong>Developed and Maintained by:</strong> TSNO Copyright @ 2025</p>
+  <p><strong>Version(Stable):</strong> 1.0.0</p>
+  <p><strong>Contact:</strong> <a href="mailto:freefreefree123678@gmail.com">freefreefree123678@gmail.com</a></p>
+  <p><strong>IMPORTANT:</strong> 
+  <p>This Page can send quotes via push notification to your device. Keep this tab open to avoid abnormal behaviors! </p>
+    <p>This page doesn't contain any ads and will stay ad-free!</p>
+    <p>Keeping the tab open will not stress the CPU and RAM</p>
+</div>
+
+<!-- Connection Status Indicator (fixed to bottom-left viewport) -->
+<div class="bottom-left-controls">
+  <div id="connectionStatus"></div>
+</div>
+
+<!-- Network Stats Popup HTML -->
+<div id="networkStatsContainer" style="display: none;">
+  <h3>Network Usage & Status</h3>
+  <div id="networkStatsContent"></div>
+  <button id="resetStatsButton">Reset Network Statistics</button>
+</div>
+
+<!-- Custom Confirmation Dialog HTML -->
+<div id="dialogOverlay">
+  <div id="customConfirmDialog">
+    <h3>Confirm Reset</h3>
+    <p id="confirmMessage"></p>
+    <div class="dialog-buttons">
+      <button id="cancelResetButton">Cancel</button>
+      <button id="confirmResetButton">Reset</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+  // --- DOM Elements ---
+  const requestPermissionBtn = document.getElementById('requestPermissionBtn');
+  const requestPermissionBtnLoader = document.getElementById('requestPermissionBtnLoader'); // New loader element
+  const stopFetchingBtn = document.getElementById('stopFetchingBtn');
+  const revokePermissionBtn = document.getElementById('revokePermissionBtn');
+  const statusElement = document.getElementById('status');
+  const intervalRadiosGroup = document.getElementById('intervalRadiosGroup'); // Parent for event delegation
+  const devInfoTrigger = document.getElementById('devInfoTrigger');
+  const devInfoPopup = document.getElementById('devInfoPopup');
+  const connectionStatusElement = document.getElementById('connectionStatus');
+  const infoButton = document.getElementById('infoButton');
+
+  // Network Stats Popup elements
+  const networkStatsContainer = document.getElementById('networkStatsContainer');
+  const networkStatsContent = document.getElementById('networkStatsContent');
+  const resetStatsButton = document.getElementById('resetStatsButton');
+
+  // Custom Confirmation Dialog elements
+  const dialogOverlay = document.getElementById('dialogOverlay');
+  const customConfirmDialog = document.getElementById('customConfirmDialog');
+  const confirmMessage = document.getElementById('confirmMessage');
+  const cancelResetButton = document.getElementById('cancelResetButton');
+  const confirmResetButton = document.getElementById('confirmResetButton');
+
+  // --- Constants ---
+  const API_ENDPOINT = 'https://api.quotable.io/random'; // Changed to HTTPS for better security/compatibility
+  const DEFAULT_DATA_SIZE = 5000; // Default to 5KB if Content-Length header is missing
+
+  // --- State Variables ---
+  let fetchIntervalId;
+  let fetchTimeoutId;
+  let abortController; // Optimization: For AbortController
+  let totalDataConsumed = parseInt(localStorage.getItem('totalDataConsumed') || '0', 10);
+
+  // --- Utility Functions ---
+
+  /**
+   * Formats bytes into a human-readable string (e.g., KB, MB).
+   * @param {number} bytes - The number of bytes to format.
+   * @param {number} [decimals=2] - The number of decimal places.
+   * @returns {string} The formatted size string.
+   */
+  function formatBytes(bytes, decimals = 2) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  }
+
+  /**
+   * Clears any currently running data fetching interval or timeout,
+   * and cancels any pending fetch request.
+   */
+  function clearCurrentFetchingProcess() {
+    if (fetchIntervalId) {
+      clearInterval(fetchIntervalId);
+      fetchIntervalId = null;
+    }
+    if (fetchTimeoutId) {
+      clearTimeout(fetchTimeoutId);
+      fetchTimeoutId = null;
+    }
+    // Optimization: Abort ongoing fetch request
+    if (abortController) {
+      abortController.abort();
+      abortController = null;
+      console.log('Ongoing fetch request aborted.');
+    }
+    stopFetchingBtn.disabled = true;
+    console.log('Fetching process cleared.');
+  }
+
+  /**
+   * Closes all active pop-up menus and the custom confirm dialog.
+   */
+  function closeAllPopups() {
+    devInfoPopup.style.display = 'none';
+    networkStatsContainer.style.display = 'none';
+    hideCustomConfirm();
+  }
+
+  /**
+   * Toggles the display of a given popup element, closing others first.
+   * @param {HTMLElement} popupElement - The popup element to toggle.
+   */
+  function togglePopup(popupElement) {
+    if (popupElement.style.display === 'block') {
+      popupElement.style.display = 'none';
+    } else {
+      closeAllPopups(); // Close other popups before opening this one
+      popupElement.style.display = 'block';
+    }
+  }
+
+  /**
+   * Shows the loading spinner for the request permission button.
+   */
+  function showLoadingSpinner() {
+    requestPermissionBtn.classList.add('hidden');
+    requestPermissionBtnLoader.classList.remove('hidden');
+  }
+
+  /**
+   * Hides the loading spinner for the request permission button.
+   */
+  function hideLoadingSpinner() {
+    requestPermissionBtnLoader.classList.add('hidden');
+    requestPermissionBtn.classList.remove('hidden');
+  }
+
+  // --- Notification & Data Fetching Logic ---
+
+  /**
+   * Requests notification permission from the user.
+   */
+  async function requestNotificationPermission() {
+    if (!('Notification' in window)) {
+      statusElement.textContent = 'Your browser does not support notifications. Please try a different browser like Chrome, Firefox, or Edge.';
+      return;
+    }
+
+    showLoadingSpinner(); // Show spinner immediately after button click
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        statusElement.textContent = 'Notification permission granted! We\'re ready to send you quotes.';
+        console.log('Notification permission granted.');
+        const selectedInterval = document.querySelector('input[name="fetchInterval"]:checked').value;
+        startDataFetching(parseInt(selectedInterval, 10));
+      } else if (permission === 'denied') {
+        statusElement.textContent = 'Notification permission denied. We can\'t send quotes without your permission.';
+        console.warn('Notification permission denied.');
+        clearCurrentFetchingProcess();
+      } else { // 'default' or 'dismissed'
+        statusElement.textContent = 'Notification permission dismissed. Please click "Request Permission" again if you change your mind.';
+        console.warn('Notification permission dismissed.');
+        clearCurrentFetchingProcess();
+      }
+      updateButtonStates(); // Update button visibility after permission change
+    } catch (error) {
+      statusElement.textContent = `An error occurred while requesting permission: ${error.message}. Please try again.`;
+      console.error('Error requesting notification permission:', error);
+      clearCurrentFetchingProcess();
+      updateButtonStates(); // Update button visibility on error
+    } finally {
+      hideLoadingSpinner(); // Hide spinner regardless of outcome
+    }
+  }
+
+  /**
+   * Fetches data from the API and displays a notification.
+   */
+  async function fetchDataAndNotify() {
+    // Optimization: Check if online before attempting fetch
+    if (!navigator.onLine) {
+      statusElement.textContent = `Offline. Cannot fetch new quotes. (Last attempt: ${new Date().toLocaleTimeString()})`;
+      console.warn('Offline. Skipping data fetch.');
+      updateConnectionStatus(); // Ensure status reflects offline state
+      return;
+    }
+
+    console.log('Fetching data...Hold on');
+    statusElement.textContent = `Fetching a new quote... (Last updated: ${new Date().toLocaleTimeString()})`;
+    
+    connectionStatusElement.classList.remove('status-online', 'status-offline');
+    connectionStatusElement.classList.add('status-fetching');
+    connectionStatusElement.textContent = 'Fetching...';
+    closeAllPopups(); // Close any open popups when a fetch starts
+
+    abortController = new AbortController(); // Optimization: Create new AbortController for each fetch
+    const signal = abortController.signal;
+
+    try {
+      const response = await fetch(API_ENDPOINT, { signal }); // Optimization: Pass signal to fetch
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      
+      const contentLength = response.headers.get('Content-Length');
+      const dataSize = contentLength ? parseInt(contentLength, 10) : DEFAULT_DATA_SIZE;
+      totalDataConsumed += dataSize;
+      localStorage.setItem('totalDataConsumed', totalDataConsumed);
+
+      const data = await response.json();
+      console.log('Data fetched:', data);
+
+      if (Notification.permission === 'granted') {
+        const notificationTitle = 'Keep Up: Your New Quote!';
+        const notificationOptions = {
+          body: `"${data.content}"\n- ${data.author}`,
+          icon: 'https://via.placeholder.com/128/007bff/ffffff?text=Quote',
+          // tag: 'quote-notification' // Can be used to group/replace notifications
+        };
+        new Notification(notificationTitle, notificationOptions);
+        console.log('Notification shown.');
+      } else {
+        console.warn('Notification permission no longer granted. Stopping data fetching.');
+        clearCurrentFetchingProcess();
+        statusElement.textContent = 'Notification permission was revoked or denied. Please re-enable it in your browser settings or request it again.';
+        return;
+      }
+      statusElement.textContent = `Quote sent! Check your notifications. (Last sent: ${new Date().toLocaleTimeString()})`;
+    } catch (error) {
+      if (error.name === 'AbortError') { // Handle aborted fetch specifically
+        console.log('Fetch request was aborted.');
+        statusElement.textContent = `Fetch aborted. (Last attempt: ${new Date().toLocaleTimeString()})`;
+      } else {
+        console.error('Error fetching data or sending notification:', error);
+        statusElement.textContent = `Failed to fetch a quote. Please check your internet connection or try again. (Last attempt: ${new Date().toLocaleTimeString()})`;
+      }
+    } finally {
+      abortController = null; // Clear the controller reference
+      updateConnectionStatus();
+      updateNetworkStatsDisplay(); // Update stats display after data consumed changes
+      updateButtonStates(); // Re-evaluate button states
+    }
+  }
+
+  /**
+   * Calculates the delay to the next aligned minute mark and sets a timeout.
+   * Used for intervals of 10, 15, 30, and 60 minutes.
+   * @param {number} intervalMinutes - The interval in minutes.
+   */
+  function setPreciseAlignedInterval(intervalMinutes) {
+    clearCurrentFetchingProcess();
+    
+    const now = new Date();
+    let nextFetchTime = new Date(now.getTime() + 1000); // Add 1 second to ensure future time
+    nextFetchTime.setSeconds(0, 0); // Align to the minute
+
+    let minutesToAdd = intervalMinutes - (nextFetchTime.getMinutes() % intervalMinutes);
+    if (minutesToAdd === intervalMinutes) { // If current minute is already perfectly aligned
+        minutesToAdd = 0;
+    }
+    
+    nextFetchTime.setMinutes(nextFetchTime.getMinutes() + minutesToAdd);
+
+    // Ensure nextFetchTime is always in the future
+    while (nextFetchTime.getTime() <= now.getTime()) {
+      nextFetchTime.setMinutes(nextFetchTime.getMinutes() + intervalMinutes);
+    }
+    
+    const delay = nextFetchTime.getTime() - now.getTime();
+
+    console.log(`Current time: ${now.toLocaleTimeString()}`);
+    console.log(`Next fetch scheduled for: ${nextFetchTime.toLocaleTimeString()} (delay: ${delay / 1000} seconds)`);
+    statusElement.textContent = `Quotes will be sent every ${intervalMinutes} minutes, aligned to the clock. Next one at: ${nextFetchTime.toLocaleTimeString()}.`;
+
+    fetchTimeoutId = setTimeout(() => {
+      fetchDataAndNotify();
+      fetchIntervalId = setInterval(fetchDataAndNotify, intervalMinutes * 60 * 1000); 
+    }, delay);
+
+    stopFetchingBtn.disabled = false;
+  }
+
+  /**
+   * Starts the data fetching process based on the selected interval.
+   * @param {number} intervalInMilliseconds - The selected interval in milliseconds.
+   */
+  function startDataFetching(intervalInMilliseconds) {
+    clearCurrentFetchingProcess();
+
+    const intervalMinutes = intervalInMilliseconds / (60 * 1000);
+    if ([10, 15, 30, 60].includes(intervalMinutes)) {
+      setPreciseAlignedInterval(intervalMinutes);
+    } else { // For 5 seconds (DEBUG Mode)
+      fetchDataAndNotify(); // Fetch immediately on start
+      fetchIntervalId = setInterval(fetchDataAndNotify, intervalInMilliseconds);
+      stopFetchingBtn.disabled = false;
+      console.log(`Data fetching interval set to ${intervalInMilliseconds / 1000} seconds.`);
+      statusElement.textContent = `Fetching a new quote every ${intervalInMilliseconds / 1000} seconds.`;
+    }
+    updateButtonStates(); // Ensure buttons are correct after starting fetch
+  }
+
+  // --- UI Update Functions ---
+
+  /**
+   * Updates the button states based on notification permission.
+   */
+  function updateButtonStates() {
+    const permission = Notification.permission;
+
+    if (permission === 'granted') {
+      requestPermissionBtn.classList.add('hidden'); // Hide request button
+      requestPermissionBtnLoader.classList.add('hidden'); // Hide its loader
+      stopFetchingBtn.style.display = 'inline-block';
+      revokePermissionBtn.style.display = 'inline-block';
+      stopFetchingBtn.disabled = !fetchIntervalId && !fetchTimeoutId; // Only enabled if fetching is active
+      revokePermissionBtn.disabled = false;
+    } else {
+      requestPermissionBtn.classList.remove('hidden'); // Show request button
+      requestPermissionBtnLoader.classList.add('hidden'); // Ensure loader is hidden
+      stopFetchingBtn.style.display = 'none'; // Hide stop button
+      revokePermissionBtn.style.display = 'none'; // Hide revoke button
+      requestPermissionBtn.disabled = false;
+      stopFetchingBtn.disabled = true;
+      revokePermissionBtn.disabled = true;
+      clearCurrentFetchingProcess(); // Ensure fetching is stopped if permission lost
+    }
+  }
+
+  /**
+   * Updates the connection status indicator (text and color).
+   */
+  function updateConnectionStatus() {
+    connectionStatusElement.classList.remove('status-fetching'); // Always remove fetching class
+
+    if (navigator.onLine) {
+      connectionStatusElement.textContent = 'Connected';
+      connectionStatusElement.classList.remove('status-offline');
+      connectionStatusElement.classList.add('status-online');
+    } else {
+      connectionStatusElement.textContent = 'Offline';
+      connectionStatusElement.classList.remove('status-online');
+      connectionStatusElement.classList.add('status-offline');
+    }
+    updateNetworkStatsDisplay(); // Update the network stats popup content
+  }
+
+  /**
+   * Updates the content of the network statistics popup.
+   */
+  function updateNetworkStatsDisplay() {
+    let statsHtml = `
+      <p><strong>Total Data Consumed:</strong> ${formatBytes(totalDataConsumed)}</p>
+      <p><strong>Connection Status:</strong> ${navigator.onLine ? 'Online' : 'Offline'}</p>
+    `;
+
+    // Optimization: Use navigator.connection properties if available
+    if (navigator.connection) {
+      statsHtml += `<p><strong>Network Type:</strong> ${navigator.connection.type || 'Unknown'}</p>`;
+      statsHtml += `<p><strong>Estimated Type:</strong> ${navigator.connection.effectiveType || 'Unknown'}</p>`;
+      statsHtml += `<p><strong>Downlink Speed:</strong> ${navigator.connection.downlink !== undefined ? navigator.connection.downlink + ' Mbps' : 'Unknown'}</p>`;
+      statsHtml += `<p><strong>Round Trip Time:</strong> ${navigator.connection.rtt !== undefined ? navigator.connection.rtt + ' ms' : 'Unknown'}</p>`;
+    } else {
+      statsHtml += '<p>(Detailed network info unavailable in this browser)</p>';
+    }
+    networkStatsContent.innerHTML = statsHtml;
+  }
+
+  // --- Custom Confirmation Dialog Functions ---
+
+  /**
+   * Shows the custom confirmation dialog.
+   * @param {string} message - The message to display in the dialog.
+   */
+  function showCustomConfirm(message) {
+    closeAllPopups(); // Ensure other popups are closed
+    confirmMessage.textContent = message;
+    dialogOverlay.style.display = 'flex';
+    customConfirmDialog.classList.add('show');
+  }
+
+  /**
+   * Hides the custom confirmation dialog.
+   */
+  function hideCustomConfirm() {
+    dialogOverlay.style.display = 'none';
+    customConfirmDialog.classList.remove('show');
+  }
+
+  // --- Event Handlers ---
+
+  /**
+   * Handles changes to the fetch interval radio buttons (delegated).
+   * @param {Event} event - The change event.
+   */
+  function handleIntervalChange(event) {
+    // Optimization: Check if the changed element is a radio button within the group
+    if (event.target.matches('input[name="fetchInterval"][type="radio"]')) {
+      if (Notification.permission === 'granted') {
+        startDataFetching(parseInt(event.target.value, 10));
+      } else {
+        statusElement.textContent = 'Notification permission is required to start fetching. Please grant permission first.';
+        // Optionally, reset to a default interval or prevent selection if not granted
+        // event.target.checked = false; 
+        // document.querySelector('input[name="fetchInterval"][value="5000"]').checked = true; // Revert to debug mode
+      }
+    }
+  }
+
+  /**
+   * Resets network statistics stored in local storage and updates UI.
+   */
+  function handleResetStats() {
+    localStorage.removeItem('totalDataConsumed');
+    totalDataConsumed = 0;
+    updateNetworkStatsDisplay();
+    hideCustomConfirm();
+    alert('Network statistics have been reset!'); // Keeping for now, can be replaced by status message
+  }
+
+  // --- Event Listeners ---
+  requestPermissionBtn.addEventListener('click', requestNotificationPermission);
+  
+  stopFetchingBtn.addEventListener('click', () => {
+    clearCurrentFetchingProcess();
+    statusElement.textContent = 'Data fetching stopped. Click "Request Notification Permission" to resume.';
+    updateConnectionStatus(); // Ensure connection status is restored
+    updateButtonStates(); // Update button visibility/state
+  });
+
+  revokePermissionBtn.addEventListener('click', () => {
+    clearCurrentFetchingProcess();
+    statusElement.textContent = 'To fully revoke notification permission, please do so via your browser settings. Fetching has been stopped.';
+    console.log('User was advised to revoke permission via browser settings.');
+    // Note: This won't actually revoke system permission, just updates UI expectation.
+    // User must revoke through browser settings.
+    // We update the UI to reflect a state where re-request is possible.
+    // Setting Notification.permission directly is not possible, this is a read-only property.
+    // The browser will update it if user revokes. We just react to that.
+    updateConnectionStatus(); // Ensure connection status is restored
+    updateButtonStates(); // Update button visibility/state
+  });
+
+  // Event delegation for interval radio buttons
+  intervalRadiosGroup.addEventListener('change', handleIntervalChange);
+
+  devInfoTrigger.addEventListener('click', (event) => {
+    event.stopPropagation();
+    togglePopup(devInfoPopup);
+  });
+
+  infoButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    togglePopup(networkStatsContainer);
+  });
+
+  resetStatsButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    showCustomConfirm('Are you sure you want to reset all collected network statistics? This action cannot be undone.');
+  });
+
+  cancelResetButton.addEventListener('click', hideCustomConfirm);
+  confirmResetButton.addEventListener('click', handleResetStats);
+  
+  // Optimization: Single document click handler for closing multiple popups
+  document.addEventListener('click', (event) => {
+    // Close Dev Info Popup
+    if (devInfoPopup.style.display === 'block' && !devInfoPopup.contains(event.target) && !devInfoTrigger.contains(event.target)) {
+      devInfoPopup.style.display = 'none';
+    }
+    // Close Network Stats Popup
+    if (networkStatsContainer.style.display === 'block' && !networkStatsContainer.contains(event.target) && !infoButton.contains(event.target)) {
+      networkStatsContainer.style.display = 'none';
+    }
+    // Custom Confirm Dialog (close only if clicking on overlay itself)
+    if (dialogOverlay.style.display === 'flex' && event.target === dialogOverlay) {
+        hideCustomConfirm();
+    }
+  });
+
+
+  // --- Initial Page Load Setup ---
+  document.addEventListener('DOMContentLoaded', () => {
+    // Initial UI state setup
+    updateConnectionStatus(); 
+    updateButtonStates(); // Set initial button visibility based on permission
+
+    // Event listeners for network changes
+    window.addEventListener('online', updateConnectionStatus);
+    window.addEventListener('offline', updateConnectionStatus);
+    if (navigator.connection) {
+        navigator.connection.addEventListener('change', updateConnectionStatus);
+    }
+
+    if (!('Notification' in window)) {
+        statusElement.textContent = 'Your browser does not support notifications. Please try a different browser like Chrome, Firefox, or Edge.';
+        requestPermissionBtn.disabled = true;
+        stopFetchingBtn.disabled = true;
+        revokePermissionBtn.disabled = true;
+        return;
+    }
+
+    // If permission already granted on load, start fetching immediately
+    if (Notification.permission === 'granted') {
+      const selectedInterval = document.querySelector('input[name="fetchInterval"]:checked').value;
+      startDataFetching(parseInt(selectedInterval, 10));
+    } else if (Notification.permission === 'denied') {
+      statusElement.textContent = 'Notification permission is denied. Please enable it in your browser settings to start.';
+    } else { // 'default'
+      statusElement.textContent = 'Welcome! Click "Request Notification Permission" to start receiving quotes.';
+    }
+  });
+</script>
+</body>
+</html>
