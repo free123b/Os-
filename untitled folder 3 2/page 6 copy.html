@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="logo.svg" type="image/x-icon">
+<title>Background Data Fetcher with Notifications</title>
+<style>
+  :root {
+    --primary-bg-color: #222; --secondary-bg-color: #333; --tertiary-bg-color: #444;
+    --text-color: #eee; --status-text-color: #bbb; --border-color: #444;
+    --container-max-width: 600px; --container-padding: 20px; --container-border-radius: 8px;
+    --button-primary-bg: #007bff; --button-primary-hover-bg: #0056b3;
+    --button-stop-bg: #ffbf00; --button-stop-hover-bg: #ffcb30; --button-stop-text-color: #333;
+    --button-revoke-bg: #dc3545; --button-revoke-hover-bg: #ff0019;
+    --fetching-status-bg: rgba(0,0,0,.7); --fetching-status-text-color: white;
+    --dev-button-bg: #6c757d; --dev-button-hover-bg: #5a6268; --dev-button-text-color: white;
+    --modal-overlay-bg: rgba(0,0,0,.6); --modal-bg-color: rgba(255,255,255,.15);
+    --modal-border: 1px solid rgba(255,255,255,.3); --modal-backdrop-filter: blur(10px);
+    --modal-box-shadow: 0 4px 30px rgba(0,0,0,.1); --modal-border-radius: 12px;
+    --modal-text-color: #eee; --modal-close-button-color: #fff; --modal-close-button-hover-color: #bbb;
+  }
+  body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background-color: var(--primary-bg-color); color: var(--text-color); }
+  .container { padding: var(--container-padding); border: 1px solid var(--border-color); border-radius: var(--container-border-radius); background-color: var(--secondary-bg-color); text-align: center; max-width: var(--container-max-width); width: 90%; }
+  button { padding: 10px 15px; margin: 5px; background-color: var(--button-primary-bg); color: white; border: none; border-radius: 5px; cursor: pointer; }
+  button:hover { background-color: var(--button-primary-hover-bg); }
+  button#stopFetchingBtn { background-color: var(--button-stop-bg); color: var(--button-stop-text-color); }
+  button#stopFetchingBtn:hover { background-color: var(--button-stop-hover-bg); }
+  button#revokePermissionBtn { background-color: var(--button-revoke-bg); }
+  button#revokePermissionBtn:hover { background-color: var(--button-revoke-hover-bg); }
+  #status { margin-top: 15px; font-size: .9em; color: var(--status-text-color); }
+  .interval-selection { margin-top: 20px; margin-bottom: 15px; text-align: left; padding: 10px 20px; border: 1px solid var(--border-color); border-radius: 5px; background-color: var(--tertiary-bg-color); }
+  .interval-selection legend { font-weight: bold; margin-bottom: 10px; color: var(--text-color); }
+  .interval-selection label { display: block; margin-bottom: 8px; cursor: pointer; }
+  .interval-selection input[type="radio"] { margin-right: 8px; }
+  #fetchingStatus { position: fixed; bottom: 10px; left: 10px; background-color: var(--fetching-status-bg); color: var(--fetching-status-text-color); padding: 5px 10px; border-radius: 5px; font-size: .8em; display: none; }
+  #developerInfoBtn { position: fixed; bottom: 20px; right: 20px; padding: 10px 15px; background-color: var(--dev-button-bg); color: var(--dev-button-text-color); border: none; border-radius: 5px; cursor: pointer; z-index: 1000; }
+  #developerInfoBtn:hover { background-color: var(--dev-button-hover-bg); }
+  .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--modal-overlay-bg); justify-content: center; align-items: center; z-index: 1001; }
+  .modal-content { background-color: var(--modal-bg-color); border-radius: var(--modal-border-radius); border: var(--modal-border); box-shadow: var(--modal-box-shadow); backdrop-filter: var(--modal-backdrop-filter); -webkit-backdrop-filter: var(--modal-backdrop-filter); padding: 30px; max-width: 500px; width: 80%; color: var(--modal-text-color); position: relative; text-align: left; }
+  .modal-content h2 { margin-top: 0; color: var(--modal-text-color); text-align: center; margin-bottom: 20px; }
+  .modal-content p { margin-bottom: 10px; font-size: .95em; }
+  .modal-close-btn { position: absolute; top: 10px; right: 15px; background: none; border: none; font-size: 1.5em; cursor: pointer; color: var(--modal-close-button-color); line-height: 1; }
+  .modal-close-btn:hover { color: var(--modal-close-button-hover-color); }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1 id="mainHeading"></h1>
+  <p id="descriptionParagraph"></p>
+  <button id="requestPermissionBtn"></button>
+  <button id="stopFetchingBtn" disabled></button>
+  <button id="revokePermissionBtn"></button>
+  <p id="status"></p>
+  <div class="interval-selection">
+    <fieldset>
+      <legend id="intervalLegend"></legend>
+      <label><input type="radio" name="fetchInterval" value="5" checked> <span id="intervalText5Min"></span></label>
+      <label><input type="radio" name="fetchInterval" value="15"> <span id="intervalText15Min"></span></label>
+      <label><input type="radio" name="fetchInterval" value="30"> <span id="intervalText30Min"></span></label>
+      <label><input type="radio" name="fetchInterval" value="60"> <span id="intervalText60Min"></span></label>
+    </fieldset>
+  </div>
+</div>
+
+<div id="fetchingStatus"></div>
+<button id="developerInfoBtn"></button>
+
+<div id="developerInfoModal" class="modal-overlay" style="display: none;">
+  <div class="modal-content">
+    <button class="modal-close-btn">&times;</button>
+    <h2 id="modalTitle"></h2>
+    <p><strong id="modalVersionLabel"></strong> <span id="modalVersionValue"></span></p>
+    <p><strong id="modalAuthorLabel"></strong> <span id="modalAuthorValue"></span></p>
+    <p><strong id="modalLastUpdatedLabel"></strong> <span id="modalLastUpdatedValue"></span></p>
+    <p><strong id="modalApiUsedLabel"></strong> <a id="modalApiUsedValue" href="" target="_blank"></a></p>
+    <p id="modalDescription"></p>
+  </div>
+</div>
+
+<script>
+  // =====================================================================
+  //                       CENTRALIZED CONFIGURATION
+  // =====================================================================
+  const CONFIG = {
+    API_ENDPOINT: 'http://api.quotable.io/random', NOTIFICATION_ICON: 'OSS.svg',
+    STATUS_MESSAGE_DURATION_MS: 2000, COUNTDOWN_UPDATE_INTERVAL_MS: 1000,
+  };
+  const UI_TEXT = {
+    MAIN_HEADING: 'KeepUP!', DESCRIPTION_PARAGRAPH: 'This page will periodically fetch data and send browser notifications if permission is granted.',
+    REQUEST_PERMISSION_BUTTON: 'Request Notification Permission', STOP_FETCHING_BUTTON: 'Stop Fetching Data', REVOKE_PERMISSION_BUTTON: 'Revoke Notification Permission',
+    INTERVAL_LEGEND: 'Select Fetch Interval:', INTERVAL_TEXT_5_MIN: '5 minutes', INTERVAL_TEXT_15_MIN: '15 minutes', INTERVAL_TEXT_30_MIN: '30 minutes', INTERVAL_TEXT_60_MIN: '1 hour',
+    STATUS_INIT: 'Status: Waiting for permission request.', STATUS_NO_NOTIFICATIONS: 'Status: Your browser does not support notifications.',
+    STATUS_PERMISSION_GRANTED: 'Status: Notification permission granted.', STATUS_PERMISSION_DENIED: 'Status: Notification permission denied.', STATUS_PERMISSION_DISMISSED: 'Status: Notification permission dismissed.',
+    STATUS_ERROR_REQUESTING_PERMISSION: (error) => `Status: Error requesting permission: ${error}`,
+    STATUS_FETCHING_DATA: (time) => `Status: Fetching data... (Last fetch: ${time})`, STATUS_HTTP_ERROR: (status) => `HTTP error! status: ${status}`,
+    STATUS_NOTIFICATION_NO_LONGER_GRANTED: 'Notification permission no longer granted. Stopping data fetching.',
+    STATUS_REVOKED_OR_DENIED_RE_ENABLE: 'Status: Notification permission revoked or denied. Please re-enable or request again.',
+    STATUS_DATA_FETCHED_AND_SENT: (time) => `Status: Data fetched and notification sent! (Last fetch: ${time})`,
+    STATUS_ERROR_FETCHING_DATA: (time) => `Status: Error fetching data. (Last attempt: ${time})`,
+    STATUS_SCHEDULING_FIRST_FETCH: (time) => `Status: First fetch scheduled for approx. ${time}.`,
+    STATUS_NEXT_FETCH_COUNTDOWN: (remaining) => `Status: Next fetch in ${remaining}.`,
+    STATUS_FETCHING_STOPPED: 'Status: Data fetching stopped. By User',
+    STATUS_MANUAL_REVOCATION_REQUIRED: 'Status: Please revoke notification permission manually in your browser settings if desired.',
+    STATUS_NOT_GRANTED_OR_DENIED: 'Status: Notification permission is not granted or already denied.',
+    STATUS_INTERVAL_CHANGED: (interval) => `Status: Fetch interval changed to ${interval} minutes.`,
+    NOTIFICATION_TITLE: 'Stay Strong !', FETCHING_STATUS_TEXT: 'Fetching...',
+    DEVELOPER_INFO_BUTTON: 'Developer Info', MODAL_TITLE: 'Developer Information',
+    MODAL_VERSION_LABEL: 'Version:', MODAL_VERSION_VALUE: '1.0.0 Stable', MODAL_AUTHOR_LABEL: 'Author:', MODAL_AUTHOR_VALUE: ' Maintain by TSNO group and devoped by ometh OS',
+    MODAL_LAST_UPDATED_LABEL: 'Contact:', MODAL_LAST_UPDATED_VALUE: 'freefreefree123678@gmail.com', MODAL_API_USED_LABEL: 'API Used:', MODAL_API_USED_TEXT: 'Quotable API', MODAL_API_USED_URL: 'https://quotable.io/',
+    MODAL_DESCRIPTION: 'This Page dynamicaly fetch quotes and pushed to you to keep motivated, to proper work keep this tab open until you need quotes. This page doesnt consiste any ads and will stay add free. ',
+  };
+  const DOM_ELEMENTS = {
+    mainHeading: document.getElementById('mainHeading'), descriptionParagraph: document.getElementById('descriptionParagraph'),
+    requestPermissionBtn: document.getElementById('requestPermissionBtn'), stopFetchingBtn: document.getElementById('stopFetchingBtn'), revokePermissionBtn: document.getElementById('revokePermissionBtn'),
+    statusElement: document.getElementById('status'), fetchingStatusElement: document.getElementById('fetchingStatus'),
+    intervalLegend: document.getElementById('intervalLegend'),
+    intervalText5Min: document.getElementById('intervalText5Min'), intervalText15Min: document.getElementById('intervalText15Min'),
+    intervalText30Min: document.getElementById('intervalText30Min'), intervalText60Min: document.getElementById('intervalText60Min'),
+    intervalRadios: document.querySelectorAll('input[name="fetchInterval"]'),
+    developerInfoBtn: document.getElementById('developerInfoBtn'), developerInfoModal: document.getElementById('developerInfoModal'),
+    modalCloseBtn: null, modalTitle: document.getElementById('modalTitle'),
+    modalVersionLabel: document.getElementById('modalVersionLabel'), modalVersionValue: document.getElementById('modalVersionValue'),
+    modalAuthorLabel: document.getElementById('modalAuthorLabel'), modalAuthorValue: document.getElementById('modalAuthorValue'),
+    modalLastUpdatedLabel: document.getElementById('modalLastUpdatedLabel'), modalLastUpdatedValue: document.getElementById('modalLastUpdatedValue'),
+    modalApiUsedLabel: document.getElementById('modalApiUsedLabel'), modalApiUsedValue: document.getElementById('modalApiUsedValue'),
+    modalDescription: document.getElementById('modalDescription'),
+  };
+  const STATE_VARIABLES = {
+    fetchIntervalId: null, initialTimeoutId: null, statusResetTimeoutId: null,
+    countdownIntervalId: null, nextFetchTime: null,
+  };
+
+  // =====================================================================
+  //                            UTILITY FUNCTIONS
+  // =====================================================================
+  function formatTimeRemaining(milliseconds) {
+    const totalSeconds = Math.floor(milliseconds / 1000); const minutes = Math.floor(totalSeconds / 60); const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+  }
+
+  // =====================================================================
+  //                         CORE APPLICATION LOGIC
+  // =====================================================================
+  function initializeUI() {
+    DOM_ELEMENTS.mainHeading.textContent = UI_TEXT.MAIN_HEADING; DOM_ELEMENTS.descriptionParagraph.textContent = UI_TEXT.DESCRIPTION_PARAGRAPH;
+    DOM_ELEMENTS.requestPermissionBtn.textContent = UI_TEXT.REQUEST_PERMISSION_BUTTON; DOM_ELEMENTS.stopFetchingBtn.textContent = UI_TEXT.STOP_FETCHING_BUTTON; DOM_ELEMENTS.revokePermissionBtn.textContent = UI_TEXT.REVOKE_PERMISSION_BUTTON;
+    DOM_ELEMENTS.intervalLegend.textContent = UI_TEXT.INTERVAL_LEGEND;
+    DOM_ELEMENTS.intervalText5Min.textContent = UI_TEXT.INTERVAL_TEXT_5_MIN; DOM_ELEMENTS.intervalText15Min.textContent = UI_TEXT.INTERVAL_TEXT_15_MIN;
+    DOM_ELEMENTS.intervalText30Min.textContent = UI_TEXT.INTERVAL_TEXT_30_MIN; DOM_ELEMENTS.intervalText60Min.textContent = UI_TEXT.INTERVAL_TEXT_60_MIN;
+    DOM_ELEMENTS.developerInfoBtn.textContent = UI_TEXT.DEVELOPER_INFO_BUTTON;
+    DOM_ELEMENTS.modalTitle.textContent = UI_TEXT.MODAL_TITLE;
+    DOM_ELEMENTS.modalVersionLabel.textContent = UI_TEXT.MODAL_VERSION_LABEL; DOM_ELEMENTS.modalVersionValue.textContent = UI_TEXT.MODAL_VERSION_VALUE;
+    DOM_ELEMENTS.modalAuthorLabel.textContent = UI_TEXT.MODAL_AUTHOR_LABEL; DOM_ELEMENTS.modalAuthorValue.textContent = UI_TEXT.MODAL_AUTHOR_VALUE;
+    DOM_ELEMENTS.modalLastUpdatedLabel.textContent = UI_TEXT.MODAL_LAST_UPDATED_LABEL; DOM_ELEMENTS.modalLastUpdatedValue.textContent = UI_TEXT.MODAL_LAST_UPDATED_VALUE;
+    DOM_ELEMENTS.modalApiUsedLabel.textContent = UI_TEXT.MODAL_API_USED_LABEL; DOM_ELEMENTS.modalApiUsedValue.textContent = UI_TEXT.MODAL_API_USED_TEXT;
+    DOM_ELEMENTS.modalApiUsedValue.href = UI_TEXT.MODAL_API_USED_URL; DOM_ELEMENTS.modalDescription.textContent = UI_TEXT.MODAL_DESCRIPTION;
+    DOM_ELEMENTS.modalCloseBtn = DOM_ELEMENTS.developerInfoModal.querySelector('.modal-close-btn');
+  }
+  function clearAllIntervalsAndTimeouts() {
+    clearInterval(STATE_VARIABLES.fetchIntervalId); clearTimeout(STATE_VARIABLES.initialTimeoutId);
+    clearTimeout(STATE_VARIABLES.statusResetTimeoutId); clearInterval(STATE_VARIABLES.countdownIntervalId);
+    STATE_VARIABLES.fetchIntervalId = STATE_VARIABLES.initialTimeoutId = STATE_VARIABLES.statusResetTimeoutId = STATE_VARIABLES.countdownIntervalId = null;
+    DOM_ELEMENTS.stopFetchingBtn.disabled = true; DOM_ELEMENTS.fetchingStatusElement.style.display = 'none';
+    STATE_VARIABLES.nextFetchTime = null; console.log('Fetching interval/timeout cleared.');
+  }
+  async function requestNotificationPermission() {
+    if (!('Notification' in window)) { DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_NO_NOTIFICATIONS; return; }
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_PERMISSION_GRANTED; console.log('Notification permission granted.');
+        startDataFetching(parseInt(document.querySelector('input[name="fetchInterval"]:checked').value, 10));
+        DOM_ELEMENTS.requestPermissionBtn.disabled = true;
+      } else {
+        DOM_ELEMENTS.statusElement.textContent = permission === 'denied' ? UI_TEXT.STATUS_PERMISSION_DENIED : UI_TEXT.STATUS_PERMISSION_DISMISSED;
+        console.warn('Notification permission ' + permission + '.');
+        clearAllIntervalsAndTimeouts(); DOM_ELEMENTS.requestPermissionBtn.disabled = false;
+      }
+    } catch (error) {
+      DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_ERROR_REQUESTING_PERMISSION(error);
+      console.error('Error requesting notification permission:', error);
+      clearAllIntervalsAndTimeouts(); DOM_ELEMENTS.requestPermissionBtn.disabled = false;
+    }
+  }
+  async function fetchDataAndNotify() {
+    DOM_ELEMENTS.fetchingStatusElement.textContent = UI_TEXT.FETCHING_STATUS_TEXT; DOM_ELEMENTS.fetchingStatusElement.style.display = 'block';
+    const currentTime = new Date().toLocaleTimeString(); console.log('Fetching data...');
+    DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_FETCHING_DATA(currentTime);
+    try {
+      const response = await fetch(CONFIG.API_ENDPOINT);
+      if (!response.ok) throw new Error(UI_TEXT.STATUS_HTTP_ERROR(response.status));
+      const data = await response.json(); console.log('Data fetched:', data);
+      if (Notification.permission === 'granted') {
+        new Notification(UI_TEXT.NOTIFICATION_TITLE, { body: `"${data.content}"\n- ${data.author}`, icon: CONFIG.NOTIFICATION_ICON });
+       
+      } else {
+        console.warn(UI_TEXT.STATUS_NOTIFICATION_NO_LONGER_GRANTED);
+        clearAllIntervalsAndTimeouts(); DOM_ELEMENTS.requestPermissionBtn.disabled = false;
+        DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_REVOKED_OR_DENIED_RE_ENABLE;
+        DOM_ELEMENTS.fetchingStatusElement.style.display = 'none'; return;
+      }
+      DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_DATA_FETCHED_AND_SENT(new Date().toLocaleTimeString());
+    } catch (error) {
+      console.error('Error fetching data or sending notification:', error);
+      DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_ERROR_FETCHING_DATA(new Date().toLocaleTimeString());
+    } finally {
+      DOM_ELEMENTS.fetchingStatusElement.style.display = 'none';
+      updateNextFetchTimeStatus(parseInt(document.querySelector('input[name="fetchInterval"]:checked').value, 10));
+    }
+  }
+  function calculateNextAlignedTime(intervalInMinutes) {
+    const now = new Date(); let futureDate = new Date(now.getTime());
+    futureDate.setSeconds(0); futureDate.setMilliseconds(0);
+    let minutesToAdd = intervalInMinutes - (futureDate.getMinutes() % intervalInMinutes);
+    if (minutesToAdd === intervalInMinutes) minutesToAdd = 0;
+    if (intervalInMinutes === 60) futureDate.setHours(futureDate.getHours() + (minutesToAdd === 0 ? 1 : 0), 0);
+    else futureDate.setMinutes(futureDate.getMinutes() + minutesToAdd);
+    if (futureDate.getTime() <= now.getTime()) futureDate.setMinutes(futureDate.getMinutes() + intervalInMinutes);
+    return futureDate;
+  }
+  function updateNextFetchTimeStatus(intervalInMinutes) {
+    if (STATE_VARIABLES.countdownIntervalId) clearInterval(STATE_VARIABLES.countdownIntervalId);
+    if (Notification.permission === 'granted' && (STATE_VARIABLES.fetchIntervalId || STATE_VARIABLES.initialTimeoutId)) {
+      STATE_VARIABLES.nextFetchTime = calculateNextAlignedTime(intervalInMinutes);
+      const updateCountdown = () => {
+        const now = new Date(); const timeRemaining = STATE_VARIABLES.nextFetchTime.getTime() - now.getTime();
+        if (timeRemaining <= 0) {
+          DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_FETCHING_DATA(now.toLocaleTimeString());
+          clearInterval(STATE_VARIABLES.countdownIntervalId); STATE_VARIABLES.countdownIntervalId = null;
+        } else { DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_NEXT_FETCH_COUNTDOWN(formatTimeRemaining(timeRemaining)); }
+      };
+      updateCountdown();
+      STATE_VARIABLES.countdownIntervalId = setInterval(updateCountdown, CONFIG.COUNTDOWN_UPDATE_INTERVAL_MS);
+    } else { STATE_VARIABLES.nextFetchTime = null; }
+  }
+  function startDataFetching(intervalInMinutes) {
+    clearAllIntervalsAndTimeouts();
+    const now = new Date();
+    let minutesUntilNextAligned = intervalInMinutes - (now.getMinutes() % intervalInMinutes);
+    if (minutesUntilNextAligned === intervalInMinutes) minutesUntilNextAligned = 0;
+    let delayToNextAligned = (minutesUntilNextAligned * 60 * 1000) - (now.getSeconds() * 1000) - now.getMilliseconds();
+    if (delayToNextAligned <= 0) delayToNextAligned += (intervalInMinutes * 60 * 1000);
+    const intervalInMilliseconds = intervalInMinutes * 60 * 1000;
+    console.log(`Current time: ${now.toLocaleTimeString()}`); console.log(`Selected interval: ${intervalInMinutes} minutes`);
+    console.log(`Minutes until next aligned interval: ${minutesUntilNextAligned}`); console.log(`Initial delay: ${delayToNextAligned / 1000} seconds`);
+    const nextFetchApproxTime = new Date(now.getTime() + delayToNextAligned);
+    DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_SCHEDULING_FIRST_FETCH(nextFetchApproxTime.toLocaleTimeString());
+    STATE_VARIABLES.nextFetchTime = nextFetchApproxTime;
+    STATE_VARIABLES.initialTimeoutId = setTimeout(() => {
+      fetchDataAndNotify();
+      STATE_VARIABLES.fetchIntervalId = setInterval(fetchDataAndNotify, intervalInMilliseconds);
+      DOM_ELEMENTS.stopFetchingBtn.disabled = false;
+      updateNextFetchTimeStatus(intervalInMinutes);
+    }, delayToNextAligned);
+    DOM_ELEMENTS.stopFetchingBtn.disabled = false;
+    updateNextFetchTimeStatus(intervalInMinutes);
+  }
+
+  // =====================================================================
+  //                           EVENT LISTENERS
+  // =====================================================================
+  DOM_ELEMENTS.requestPermissionBtn.addEventListener('click', requestNotificationPermission);
+  DOM_ELEMENTS.stopFetchingBtn.addEventListener('click', () => {
+    clearAllIntervalsAndTimeouts(); DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_FETCHING_STOPPED;
+    DOM_ELEMENTS.requestPermissionBtn.disabled = false;
+  });
+  DOM_ELEMENTS.revokePermissionBtn.addEventListener('click', () => {
+    clearAllIntervalsAndTimeouts();
+    DOM_ELEMENTS.statusElement.textContent = Notification.permission === 'granted' ? UI_TEXT.STATUS_MANUAL_REVOCATION_REQUIRED : UI_TEXT.STATUS_NOT_GRANTED_OR_DENIED;
+    if (Notification.permission === 'granted') console.warn('Manual revocation required for notification permission.');
+    DOM_ELEMENTS.requestPermissionBtn.disabled = false;
+  });
+  DOM_ELEMENTS.intervalRadios.forEach(radio => {
+    radio.addEventListener('change', (event) => {
+      const newInterval = parseInt(event.target.value, 10);
+      DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_INTERVAL_CHANGED(newInterval);
+      if (STATE_VARIABLES.statusResetTimeoutId) clearTimeout(STATE_VARIABLES.statusResetTimeoutId);
+      if (Notification.permission === 'granted') startDataFetching(newInterval);
+      else STATE_VARIABLES.statusResetTimeoutId = setTimeout(() => { DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_INIT; }, CONFIG.STATUS_MESSAGE_DURATION_MS);
+    });
+  });
+  DOM_ELEMENTS.developerInfoBtn.addEventListener('click', () => { DOM_ELEMENTS.developerInfoModal.style.display = 'flex'; });
+  DOM_ELEMENTS.developerInfoModal.addEventListener('click', (event) => { if (event.target === DOM_ELEMENTS.developerInfoModal) DOM_ELEMENTS.developerInfoModal.style.display = 'none'; });
+
+  // =====================================================================
+  //                            INITIALIZATION
+  // =====================================================================
+  initializeUI();
+  if (DOM_ELEMENTS.modalCloseBtn) { DOM_ELEMENTS.modalCloseBtn.addEventListener('click', () => { DOM_ELEMENTS.developerInfoModal.style.display = 'none'; }); }
+  DOM_ELEMENTS.developerInfoModal.style.display = 'none';
+
+  if (Notification.permission === 'granted') {
+    startDataFetching(parseInt(document.querySelector('input[name="fetchInterval"]:checked').value, 10));
+    DOM_ELEMENTS.requestPermissionBtn.disabled = true;
+  } else if (Notification.permission === 'denied') {
+    DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_PERMISSION_DENIED + ' Please enable it to start fetching.';
+    DOM_ELEMENTS.requestPermissionBtn.disabled = false;
+  } else {
+    DOM_ELEMENTS.statusElement.textContent = UI_TEXT.STATUS_INIT;
+    DOM_ELEMENTS.requestPermissionBtn.disabled = false;
+  }
+</script>
+</body>
+</html>
